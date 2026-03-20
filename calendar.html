@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OutSystems Calendar JS Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f5f5f5;
+            box-sizing: border-box;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .controls input, .controls button {
+            padding: 8px 12px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .controls button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .controls button:hover {
+            background-color: #0056b3;
+        }
+
+        /* 
+           Để test scroll ngang, có thể thu nhỏ width của wrapper này trên máy tính 
+           hoặc sử dụng F12 DevTools để giả lập thiết bị di động.
+           Không set chiều cao cứng để tự động hiển thị đủ cell height định sẵn bên trong.
+        */
+        #calendarContainer {
+            width: 100%;
+            max-width: 800px;
+            height: 500px; /* Thêm chiều cao cố định để test scroll dọc */
+            background: #ffffff;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <input type="number" id="inputMonth" min="1" max="12" placeholder="Tháng (1-12)">
+        <input type="number" id="inputYear" placeholder="Năm (VD: 2026)">
+        <button id="generateBtn">Tạo Lịch</button>
+    </div>
+
+    <!-- Vùng Container sẽ chứa nội dung JS sinh ra -->
+    <div id="calendarContainer"></div>
+
+    <script>
+        // MOCK môi trường OutSystems: giả lập object $parameters
+        const $parameters = {
+            ContainerId: 'calendarContainer',
+            Month: null,
+            Year: null
+        }
+
+        /**
+         * XinTA - 2026/03/21 - Bổ sung biến CELL_HEIGHT fix cứng 
+         * và thêm scroll ngang cho các thiết bị di động khổ hẹp.
+         * 
+         * Trình tạo ma trận lịch theo tháng / năm hiện tại với 6 hàng và 7 cột.
+         * Cell height hiển thị cố định bằng tham số, không có scroll dọc.
+         * Khi thiết bị quá bé (ví dụ mobile), container sẽ có hiển thị thanh scroll ngang.
+         * Format nội dung ô: MMM dd (Ví dụ: Apr 1 thì in đậm chữ Apr).
+         */
+        function main() {
+            // INPUTS
+            const prContainerId = $parameters.ContainerId
+            const prMonth = $parameters.Month
+            const prYear = $parameters.Year
+
+            const TOTAL_DAYS_TO_RENDER = 42
+            const CELL_HEIGHT = 30 // Hằng số kiểm soát chiều cao cố định của cell lịch
+            const MIN_CALENDAR_WIDTH = 500 // Chiều rộng tối thiểu của tổng thể lịch để kích hoạt scroll ngang
+
+            if (prContainerId == null || prContainerId === '') {
+                console.error('Container Id is not provided')
+                return
+            }
+
+            const containerElement = document.getElementById(prContainerId)
+
+            if (containerElement == null) {
+                console.error('Container element not found')
+                return
+            }
+
+            let targetMonth = prMonth
+            if (targetMonth == null) {
+                targetMonth = new Date().getMonth() + 1
+            }
+
+            let targetYear = prYear
+            if (targetYear == null) {
+                targetYear = new Date().getFullYear()
+            }
+
+            const datesArray = generateCalendarDates(targetMonth, targetYear, TOTAL_DAYS_TO_RENDER)
+
+            containerElement.innerHTML = ''
+
+            // Thẻ wrapper làm khung chịu trách nhiệm Scroll Ngang nếu màn hình bị bé
+            const wrapper = document.createElement('div')
+            wrapper.style.display = 'flex'
+            wrapper.style.flexDirection = 'column'
+            wrapper.style.width = '100%'
+            // XinTA - 2026/03/21 - Wrap height explicitly defined to prevent overflow
+            wrapper.style.height = '100%'
+            wrapper.style.overflowX = 'auto' // Bật scroll ngang
+            wrapper.style.overflowY = 'hidden' // Loại bỏ hoàn toàn scroll dọc
+            wrapper.style.borderTop = '1px solid gray'
+            wrapper.style.borderLeft = '1px solid gray'
+            wrapper.style.boxSizing = 'border-box'
+
+            // Lớp Inner bọc chung cả header lẫn body để ép width chung, bảo đảm lưới không bị vỡ hoặc lệch
+            const innerScrollContainer = document.createElement('div')
+            innerScrollContainer.style.minWidth = String(MIN_CALENDAR_WIDTH) + 'px'
+            // XinTA - 2026/03/21 - Added flex: 1 and minHeight: 0 to allow child flex shrink
+            innerScrollContainer.style.flex = '1'
+            innerScrollContainer.style.minHeight = '0px'
+            innerScrollContainer.style.display = 'flex'
+            innerScrollContainer.style.flexDirection = 'column'
+
+            const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+            const headerRow = document.createElement('div')
+            headerRow.style.display = 'grid'
+            headerRow.style.gridTemplateColumns = 'repeat(7, 1fr)'
+            headerRow.style.flexShrink = '0'
+
+            for (let i = 0; i < 7; i++) {
+                const dayCell = document.createElement('div')
+                dayCell.textContent = DAYS_OF_WEEK[i]
+                dayCell.style.borderRight = '1px solid gray'
+                dayCell.style.borderBottom = '1px solid gray'
+                dayCell.style.padding = '8px'
+                dayCell.style.textAlign = 'center'
+                dayCell.style.fontWeight = 'bold'
+                dayCell.style.boxSizing = 'border-box'
+                headerRow.appendChild(dayCell)
+            }
+
+            innerScrollContainer.appendChild(headerRow)
+
+            const bodyContainer = document.createElement('div')
+            bodyContainer.style.flex = '1'
+            // XinTA - 2026/03/21 - Set minHeight: 0px to allow flexbox shrinking and trigger overflow scroll
+            bodyContainer.style.minHeight = '0px'
+            bodyContainer.style.overflowY = 'auto' // Tính năng scroll dọc hoạt động
+            bodyContainer.style.overflowX = 'hidden'
+            bodyContainer.style.display = 'grid'
+            bodyContainer.style.gridTemplateColumns = 'repeat(7, 1fr)'
+
+            // Ẩn thanh scroll UI đi nhưng vẫn giữ tính năng scroll
+            const scrollClass = 'hide-scrollbar-' + prContainerId
+            bodyContainer.classList.add(scrollClass)
+            
+            if (!document.getElementById('style-' + scrollClass)) {
+                const styleDef = document.createElement('style')
+                styleDef.id = 'style-' + scrollClass
+                styleDef.innerHTML = '.' + scrollClass + '::-webkit-scrollbar { display: none; } ' +
+                                     '.' + scrollClass + ' { -ms-overflow-style: none; scrollbar-width: none; }'
+                document.head.appendChild(styleDef)
+            }
+            
+            // Fix cứng chiều cao các hàng theo hằng số đã định
+            bodyContainer.style.gridTemplateRows = 'repeat(6, ' + String(CELL_HEIGHT) + 'px)'
+
+            const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+            for (let i = 0; i < TOTAL_DAYS_TO_RENDER; i++) {
+                const currentDateItem = datesArray[i]
+                const cell = document.createElement('div')
+                cell.style.borderRight = '1px solid gray'
+                cell.style.borderBottom = '1px solid gray'
+                cell.style.boxSizing = 'border-box'
+                cell.style.padding = '8px'
+                cell.style.position = 'relative'
+
+                const dateSpan = document.createElement('span')
+                const monthName = MONTH_NAMES[currentDateItem.month]
+                const dayOfMonth = currentDateItem.date
+
+                if (dayOfMonth !== 1) {
+                    dateSpan.textContent = monthName + ' ' + dayOfMonth
+                } else {
+                    dateSpan.innerHTML = '<strong>' + monthName + '</strong> ' + dayOfMonth
+                }
+
+                cell.appendChild(dateSpan)
+                bodyContainer.appendChild(cell)
+            }
+
+            innerScrollContainer.appendChild(bodyContainer)
+            wrapper.appendChild(innerScrollContainer)
+            containerElement.appendChild(wrapper)
+
+            // OUTPUTS
+        }
+
+        /**
+         * Tính toán danh sách các ngày để render cho lịch có kích thước cố định.
+         * 
+         * @param {number} month - Tháng mục tiêu (1 - 12)
+         * @param {number} year - Năm mục tiêu
+         * @param {number} totalDays - Tổng số lượng ngày cần render (Ví dụ 42 cho 6 tuần)
+         * @returns {Array<{year: number, month: number, date: number}>} Mảng chứa dữ liệu của các ngày
+         */
+        function generateCalendarDates(month, year, totalDays) {
+            const jsMonth = month - 1
+            const firstDayOfMonth = new Date(year, jsMonth, 1)
+            const startingDayOfWeek = firstDayOfMonth.getDay()
+
+            const dates = []
+            const currentDate = new Date(year, jsMonth, 1 - startingDayOfWeek)
+
+            for (let i = 0; i < totalDays; i++) {
+                const item = {
+                    year: currentDate.getFullYear(),
+                    month: currentDate.getMonth(),
+                    date: currentDate.getDate()
+                }
+                dates.push(item)
+                currentDate.setDate(currentDate.getDate() + 1)
+            }
+
+            return dates
+        }
+
+        // --- MÔ PHỎNG SỰ KIỆN GỌI FUNCTION JS TRONG OUTSYSTEMS ---
+        const inputMonth = document.getElementById('inputMonth')
+        const inputYear = document.getElementById('inputYear')
+        const generateBtn = document.getElementById('generateBtn')
+
+        // Set giá trị mặc định lúc load trang (Tháng/Năm hiện tại)
+        const currentNow = new Date()
+        inputMonth.value = currentNow.getMonth() + 1
+        inputYear.value = currentNow.getFullYear()
+
+        function loadCalendar() {
+            // Nếu parse bị NaN thì set thành null để test logic default tự lấy tháng hiện tại
+            const parsedMonth = parseInt(inputMonth.value)
+            const parsedYear = parseInt(inputYear.value)
+
+            if (isNaN(parsedMonth)) {
+                $parameters.Month = null
+            } else {
+                $parameters.Month = parsedMonth
+            }
+
+            if (isNaN(parsedYear)) {
+                $parameters.Year = null
+            } else {
+                $parameters.Year = parsedYear
+            }
+
+            main()
+        }
+
+        generateBtn.addEventListener('click', loadCalendar)
+
+        // Generate lần đầu khi mở file
+        loadCalendar()
+    </script>
+</body>
+</html>
