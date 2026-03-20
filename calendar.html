@@ -47,14 +47,16 @@
         /* 
            Để test scroll ngang, có thể thu nhỏ width của wrapper này trên máy tính 
            hoặc sử dụng F12 DevTools để giả lập thiết bị di động.
-           Không set chiều cao cứng để tự động hiển thị đủ cell height định sẵn bên trong.
         */
         #calendarContainer {
             width: 100%;
             max-width: 800px;
-            height: 500px; /* Thêm chiều cao cố định để test scroll dọc */
+            /* XinTA - 2026/03/21 - Đổi chiều cao gán cứng thành max-height kết hợp flex để hộp tự ôm gọn nội dung */
+            max-height: 500px; 
+            display: flex;
+            flex-direction: column;
             background: #ffffff;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            /* box-shadow: 0 4px 12px rgba(0,0,0,0.1); */ /* Đã bỏ shadow để quan sát viền border dễ hơn */
         }
     </style>
 </head>
@@ -78,13 +80,12 @@
         }
 
         /**
-         * XinTA - 2026/03/21 - Bổ sung biến CELL_HEIGHT fix cứng 
-         * và thêm scroll ngang cho các thiết bị di động khổ hẹp.
+         * XinTA - 2026/03/21 - Fix scale width & border clipping when size shrink. Hide mobile scrollbar.
          * 
          * Trình tạo ma trận lịch theo tháng / năm hiện tại với 6 hàng và 7 cột.
-         * Cell height hiển thị cố định bằng tham số, không có scroll dọc.
-         * Khi thiết bị quá bé (ví dụ mobile), container sẽ có hiển thị thanh scroll ngang.
-         * Format nội dung ô: MMM dd (Ví dụ: Apr 1 thì in đậm chữ Apr).
+         * Cell height hiển thị cố định bằng tham số.
+         * Tự động scale độ cao khung bao ngoài gọn theo grid nếu CELL_HEIGHT được gán nhỏ (vd: 30)
+         * Cắt đi scroll UI ngang, dọc nhưng vẫn giữ hành vi vuốt tay tự do của viewport flexbox.
          */
         function main() {
             // INPUTS
@@ -93,7 +94,7 @@
             const prYear = $parameters.Year
 
             const TOTAL_DAYS_TO_RENDER = 42
-            const CELL_HEIGHT = 30 // Hằng số kiểm soát chiều cao cố định của cell lịch
+            const CELL_HEIGHT = 170 // Hằng số kiểm soát chiều cao cố định của cell lịch
             const MIN_CALENDAR_WIDTH = 500 // Chiều rộng tối thiểu của tổng thể lịch để kích hoạt scroll ngang
 
             if (prContainerId == null || prContainerId === '') {
@@ -127,20 +128,18 @@
             wrapper.style.display = 'flex'
             wrapper.style.flexDirection = 'column'
             wrapper.style.width = '100%'
-            // XinTA - 2026/03/21 - Wrap height explicitly defined to prevent overflow
-            wrapper.style.height = '100%'
-            wrapper.style.overflowX = 'auto' // Bật scroll ngang
-            wrapper.style.overflowY = 'hidden' // Loại bỏ hoàn toàn scroll dọc
-            wrapper.style.borderTop = '1px solid gray'
-            wrapper.style.borderLeft = '1px solid gray'
+            wrapper.style.maxHeight = '100%' // XinTA - Thay vì fixed height 100%, dùng maxHeight để wrap khít lấy body khi content quá ngắn
+            // XinTA - 2026/03/21 - Bổ sung minHeight 0px để giải quyết triệt để lỗi thẻ wrapper cản trở shrink của flexbox
+            wrapper.style.minHeight = '0px'
+            wrapper.style.overflowX = 'auto' // Bật scroll ngang chức năng
+            wrapper.style.overflowY = 'hidden'
+            wrapper.style.border = '1px solid gray' // Đóng 4 góc biên cứng thay vì biên nối
             wrapper.style.boxSizing = 'border-box'
 
             // Lớp Inner bọc chung cả header lẫn body để ép width chung, bảo đảm lưới không bị vỡ hoặc lệch
             const innerScrollContainer = document.createElement('div')
             innerScrollContainer.style.minWidth = String(MIN_CALENDAR_WIDTH) + 'px'
-            // XinTA - 2026/03/21 - Added flex: 1 and minHeight: 0 to allow child flex shrink
-            innerScrollContainer.style.flex = '1'
-            innerScrollContainer.style.minHeight = '0px'
+            innerScrollContainer.style.minHeight = '0px' // XinTA - Bỏ flex: 1, giữ nguyên minHeight: 0 để cho phép shrink không cản trở flow flex column
             innerScrollContainer.style.display = 'flex'
             innerScrollContainer.style.flexDirection = 'column'
 
@@ -153,7 +152,12 @@
             for (let i = 0; i < 7; i++) {
                 const dayCell = document.createElement('div')
                 dayCell.textContent = DAYS_OF_WEEK[i]
-                dayCell.style.borderRight = '1px solid gray'
+                
+                // Trừ phi cell cuối mép thì cất border đi để tránh bị double biên của wrapper
+                if (i !== 6) {
+                    dayCell.style.borderRight = '1px solid gray'
+                }
+                
                 dayCell.style.borderBottom = '1px solid gray'
                 dayCell.style.padding = '8px'
                 dayCell.style.textAlign = 'center'
@@ -165,23 +169,22 @@
             innerScrollContainer.appendChild(headerRow)
 
             const bodyContainer = document.createElement('div')
-            bodyContainer.style.flex = '1'
-            // XinTA - 2026/03/21 - Set minHeight: 0px to allow flexbox shrinking and trigger overflow scroll
             bodyContainer.style.minHeight = '0px'
             bodyContainer.style.overflowY = 'auto' // Tính năng scroll dọc hoạt động
             bodyContainer.style.overflowX = 'hidden'
             bodyContainer.style.display = 'grid'
             bodyContainer.style.gridTemplateColumns = 'repeat(7, 1fr)'
 
-            // Ẩn thanh scroll UI đi nhưng vẫn giữ tính năng scroll
+            // Ẩn thanh scroll UI cả dọc (body) lẫn ngang (wrapper) đi nhưng vẫn giữ tính năng scroll
             const scrollClass = 'hide-scrollbar-' + prContainerId
+            wrapper.classList.add(scrollClass) 
             bodyContainer.classList.add(scrollClass)
             
             if (!document.getElementById('style-' + scrollClass)) {
                 const styleDef = document.createElement('style')
                 styleDef.id = 'style-' + scrollClass
-                styleDef.innerHTML = '.' + scrollClass + '::-webkit-scrollbar { display: none; } ' +
-                                     '.' + scrollClass + ' { -ms-overflow-style: none; scrollbar-width: none; }'
+                styleDef.innerHTML = '.' + scrollClass + '::-webkit-scrollbar { display: none !important; } ' +
+                                     '.' + scrollClass + ' { -ms-overflow-style: none !important; scrollbar-width: none !important; }'
                 document.head.appendChild(styleDef)
             }
             
@@ -193,8 +196,17 @@
             for (let i = 0; i < TOTAL_DAYS_TO_RENDER; i++) {
                 const currentDateItem = datesArray[i]
                 const cell = document.createElement('div')
-                cell.style.borderRight = '1px solid gray'
-                cell.style.borderBottom = '1px solid gray'
+                
+                // Trừ cell cuối mép grid phải, thì ẩn đi tránh bị double stroke từ border parent
+                if (i % 7 !== 6) {
+                    cell.style.borderRight = '1px solid gray'
+                }
+                
+                // Tương tự, tránh double layer ở đường đáy hàng cuối (row 6)
+                if (i < 35) {
+                    cell.style.borderBottom = '1px solid gray'
+                }
+                
                 cell.style.boxSizing = 'border-box'
                 cell.style.padding = '8px'
                 cell.style.position = 'relative'
